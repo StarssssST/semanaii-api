@@ -7,13 +7,20 @@ function makeRequest(url) {
     return new Promise((resolve, reject) => {
         const options = {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            },
+            followRedirect: true,
+            timeout: 10000
         };
 
-        https.get(url, options, (res) => {
+        const request = https.get(url, options, (res) => {
             // Handle redirects
             if (res.statusCode === 301 || res.statusCode === 302) {
+                console.log(`Redirecting to: ${res.headers.location}`);
                 return makeRequest(res.headers.location);
             }
 
@@ -26,18 +33,29 @@ function makeRequest(url) {
                     reject(new Error(`HTTP error! status: ${res.statusCode}`));
                 }
             });
-        }).on('error', (err) => reject(err));
+        });
+
+        request.on('error', (err) => reject(err));
+        request.on('timeout', () => {
+            request.destroy();
+            reject(new Error('Request timeout'));
+        });
     });
 }
 
 const app = express();
 
-// Enhanced CORS configuration
+// More comprehensive CORS configuration
 app.use(cors({
-    origin: '*',
+    origin: function(origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if(!origin) return callback(null, true);
+        callback(null, true); // Allow all origins
+    },
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
     credentials: true,
+    maxAge: 86400, // Cache preflight requests for 24 hours
     preflightContinue: false,
     optionsSuccessStatus: 204
 }));
@@ -56,12 +74,16 @@ app.use((req, res, next) => {
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Error handling middleware
+// Add better error handling middleware
 app.use((err, req, res, next) => {
     console.error('Error:', err);
-    res.status(500).json({ 
-        error: err.message,
-        path: req.path
+    res.status(err.status || 500).json({
+        error: {
+            message: err.message,
+            code: err.status || 500,
+            path: req.path,
+            timestamp: new Date().toISOString()
+        }
     });
 });
 
@@ -87,13 +109,14 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
     }
 });
 
+// Updated chapter route with better URL handling
 app.get('/api/proxy/chapter/:url(*)', async (req, res) => {
     try {
-        // Fix URL encoding and handle slashes properly
         let decodedUrl = decodeURIComponent(req.params.url);
         
-        // Remove leading slash if present
-        decodedUrl = decodedUrl.replace(/^\/+/, '');
+        // Clean up URL
+        decodedUrl = decodedUrl.replace(/^\/+|\/+$/g, ''); // Remove leading/trailing slashes
+        decodedUrl = decodedUrl.replace(/\/+/g, '/'); // Remove multiple consecutive slashes
         
         // Construct full URL
         const url = decodedUrl.startsWith('http') ? 
@@ -103,12 +126,20 @@ app.get('/api/proxy/chapter/:url(*)', async (req, res) => {
         console.log(`Fetching chapter URL:`, url);
         
         const html = await makeRequest(url);
+        
+        // Set proper headers
+        res.header('Content-Type', 'text/html; charset=utf-8');
+        res.header('Cache-Control', 'no-store, no-cache, must-revalidate');
         res.send(html);
+        
     } catch (error) {
         console.error('Error fetching chapter:', error);
-        res.status(500).json({ 
-            error: error.message,
-            url: req.params.url
+        res.status(500).json({
+            error: {
+                message: error.message,
+                url: req.params.url,
+                timestamp: new Date().toISOString()
+            }
         });
     }
 });
