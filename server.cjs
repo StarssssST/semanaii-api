@@ -8,10 +8,11 @@ function makeRequest(url) {
         const options = {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept': '*/*',
                 'Accept-Language': 'en-US,en;q=0.5',
                 'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
+                'Pragma': 'no-cache',
+                'Origin': null // Allow no-cors requests
             },
             followRedirect: true,
             timeout: 10000
@@ -45,29 +46,27 @@ function makeRequest(url) {
 
 const app = express();
 
-// More comprehensive CORS configuration
+// Update CORS configuration to be more permissive
 app.use(cors({
-    origin: function(origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if(!origin) return callback(null, true);
-        callback(null, true); // Allow all origins
-    },
+    origin: '*',
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    allowedHeaders: ['*'],
     credentials: true,
-    maxAge: 86400, // Cache preflight requests for 24 hours
-    preflightContinue: false,
     optionsSuccessStatus: 204
 }));
 
-// Add options handler for preflight requests
-app.options('*', cors());
-
-// Add response headers middleware
+// Add headers to allow no-cors requests
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Headers', '*');
+    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.header('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    
+    // Handle preflight
+    if (req.method === 'OPTIONS') {
+        return res.status(204).send();
+    }
     next();
 });
 
@@ -92,13 +91,17 @@ app.get('/', (req, res) => {
     res.json({ status: 'ok', message: 'Server is running' });
 });
 
-// Proxy routes with better error handling
+// Update manga route
 app.get('/api/proxy/manga/:slug', async (req, res) => {
     try {
         const { slug } = req.params;
         const url = `https://komiku.id/manga/${slug}/`;
         console.log(`Fetching manga: ${url}`);
         const html = await makeRequest(url);
+        
+        // Set permissive headers
+        res.header('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval'; img-src * data: blob:");
+        res.header('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
     } catch (error) {
         console.error('Error fetching manga:', error);
@@ -109,7 +112,7 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
     }
 });
 
-// Updated chapter route with better URL handling
+// Update chapter route similarly
 app.get('/api/proxy/chapter/:url(*)', async (req, res) => {
     try {
         let decodedUrl = decodeURIComponent(req.params.url);
@@ -124,12 +127,11 @@ app.get('/api/proxy/chapter/:url(*)', async (req, res) => {
             `https://komiku.id/${decodedUrl}`;
 
         console.log(`Fetching chapter URL:`, url);
-        
         const html = await makeRequest(url);
         
-        // Set proper headers
+        // Set permissive headers
+        res.header('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval'; img-src * data: blob:");
         res.header('Content-Type', 'text/html; charset=utf-8');
-        res.header('Cache-Control', 'no-store, no-cache, must-revalidate');
         res.send(html);
         
     } catch (error) {
