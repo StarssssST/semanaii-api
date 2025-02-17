@@ -12,12 +12,13 @@ function makeRequest(url) {
         };
 
         https.get(url, options, (res) => {
+            // Handle redirects
+            if (res.statusCode === 301 || res.statusCode === 302) {
+                return makeRequest(res.headers.location);
+            }
+
             let data = '';
-            
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            
+            res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     resolve(data);
@@ -25,20 +26,32 @@ function makeRequest(url) {
                     reject(new Error(`HTTP error! status: ${res.statusCode}`));
                 }
             });
-        }).on('error', (err) => {
-            reject(err);
-        });
+        }).on('error', (err) => reject(err));
     });
 }
 
 const app = express();
 
-// Enable CORS for all routes
+// Enhanced CORS configuration
 app.use(cors({
-    origin: '*', // Allow all origins
-    methods: ['GET', 'POST', 'OPTIONS'], // Allowed methods
-    allowedHeaders: ['Content-Type', 'Authorization']
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
 }));
+
+// Add options handler for preflight requests
+app.options('*', cors());
+
+// Add response headers middleware
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    next();
+});
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -76,13 +89,19 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
 
 app.get('/api/proxy/chapter/:url(*)', async (req, res) => {
     try {
-        // Fix URL encoding issues
-        const decodedUrl = decodeURIComponent(req.params.url);
+        // Fix URL encoding and handle slashes properly
+        let decodedUrl = decodeURIComponent(req.params.url);
+        
+        // Remove leading slash if present
+        decodedUrl = decodedUrl.replace(/^\/+/, '');
+        
+        // Construct full URL
         const url = decodedUrl.startsWith('http') ? 
             decodedUrl : 
-            `https://komiku.id${decodedUrl}`;
+            `https://komiku.id/${decodedUrl}`;
 
-        console.log(`Fetching chapter: ${url}`);
+        console.log(`Fetching chapter URL:`, url);
+        
         const html = await makeRequest(url);
         res.send(html);
     } catch (error) {
