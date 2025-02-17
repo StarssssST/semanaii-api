@@ -115,22 +115,22 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
 // Update chapter route similarly
 app.get('/api/proxy/chapter/:url(*)', async (req, res) => {
     try {
+        // Decode and clean URL
         let decodedUrl = decodeURIComponent(req.params.url);
+        decodedUrl = decodedUrl.replace(/^\/+|\/+$/g, '');
         
-        // Clean up URL
-        decodedUrl = decodedUrl.replace(/^\/+|\/+$/g, ''); // Remove leading/trailing slashes
-        decodedUrl = decodedUrl.replace(/\/+/g, '/'); // Remove multiple consecutive slashes
-        
-        // Construct full URL
+        // Add domain if not present
         const url = decodedUrl.startsWith('http') ? 
             decodedUrl : 
             `https://komiku.id/${decodedUrl}`;
 
-        console.log(`Fetching chapter URL:`, url);
-        const html = await makeRequest(url);
+        console.log('Fetching chapter from URL:', url);
         
-        // Set permissive headers
-        res.header('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval'; img-src * data: blob:");
+        const html = await makeRequest(url);
+        if (!html) {
+            throw new Error('Empty response from source');
+        }
+        
         res.header('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
         
