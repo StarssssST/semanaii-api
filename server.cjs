@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const https = require('https');
+const cors = require('cors');
 
 function makeRequest(url) {
     return new Promise((resolve, reject) => {
@@ -32,10 +33,31 @@ function makeRequest(url) {
 
 const app = express();
 
+// Enable CORS for all routes
+app.use(cors({
+    origin: '*', // Allow all origins
+    methods: ['GET', 'POST', 'OPTIONS'], // Allowed methods
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Proxy routes
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(500).json({ 
+        error: err.message,
+        path: req.path
+    });
+});
+
+// Health check route
+app.get('/', (req, res) => {
+    res.json({ status: 'ok', message: 'Server is running' });
+});
+
+// Proxy routes with better error handling
 app.get('/api/proxy/manga/:slug', async (req, res) => {
     try {
         const { slug } = req.params;
@@ -45,21 +67,30 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
         res.send(html);
     } catch (error) {
         console.error('Error fetching manga:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ 
+            error: error.message,
+            slug: req.params.slug
+        });
     }
 });
 
 app.get('/api/proxy/chapter/:url(*)', async (req, res) => {
     try {
-        const url = req.params.url.startsWith('http') ? 
-            req.params.url : 
-            `https://komiku.id${req.params.url}`;
+        // Fix URL encoding issues
+        const decodedUrl = decodeURIComponent(req.params.url);
+        const url = decodedUrl.startsWith('http') ? 
+            decodedUrl : 
+            `https://komiku.id${decodedUrl}`;
+
         console.log(`Fetching chapter: ${url}`);
         const html = await makeRequest(url);
         res.send(html);
     } catch (error) {
         console.error('Error fetching chapter:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ 
+            error: error.message,
+            url: req.params.url
+        });
     }
 });
 
