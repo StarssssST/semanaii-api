@@ -4,20 +4,20 @@
   "main": "server.cjs",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.cjs & node proxy.cjs",
-    "server": "node server.cjs",
-    "proxy": "node proxy.cjs"
+    "start": "node server.cjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "axios": "^1.6.7",
-    "cheerio": "^1.0.0-rc.12",
-    "cors": "^2.8.5",
+    "chokidar": "^4.0.3",
     "express": "^4.21.2",
-    "concurrently": "^8.2.2"
+    "morgan": "^1.10.0",
+    "node-fetch": "^3.3.2",
+    "ws": "^8.18.0",
+    "https": "^1.0.0",
+    "cheerio": "^1.0.0-rc.12"
   }
 }
 

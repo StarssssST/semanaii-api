@@ -1,82 +1,193 @@
 const express = require('express');
 const path = require('path');
 const https = require('https');
+const cheerio = require('cheerio');
 
-function makeRequest(url) {
+function makeRequest(url, headers = {}) {
     return new Promise((resolve, reject) => {
         const options = {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                ...headers
             }
         };
 
-        https.get(url, options, (res) => {
+        const req = https.get(url, options, (res) => {
+            // Handle redirects
+            if (res.statusCode === 301 || res.statusCode === 302) {
+                return resolve(makeRequest(res.headers.location, headers));
+            }
+
             let data = '';
-            
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            
+            res.on('data', chunk => data += chunk);
             res.on('end', () => {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
-                    resolve(data);
+                    resolve({ data, headers: res.headers });
                 } else {
                     reject(new Error(`HTTP error! status: ${res.statusCode}`));
                 }
             });
-        }).on('error', (err) => {
-            reject(err);
         });
+
+        req.on('error', reject);
+        req.end();
     });
 }
 
 const app = express();
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+// Simple request logger
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+});
 
-// Proxy routes
+// Allow all origins
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', '*');
+    next();
+});
+
+// Handle preflight
+app.options('*', (req, res) => res.sendStatus(200));
+
+// Health check
+app.get('/', (req, res) => {
+    res.json({ status: 'ok', message: 'Server is running' });
+});
+
+// Manga proxy with proper error handling
 app.get('/api/proxy/manga/:slug', async (req, res) => {
     try {
-        const { slug } = req.params;
-        const url = `https://komiku.id/manga/${slug}/`;
-        console.log(`Fetching manga: ${url}`);
-        const html = await makeRequest(url);
-        res.send(html);
+        const url = `https://komiku.id/manga/${req.params.slug}/`;
+        console.log('Fetching manga:', url);
+        
+        const { data } = await makeRequest(url);
+        const $ = cheerio.load(data);
+        
+        // Extract and transform manga data
+        const info = {
+            title: $('.perapih h1').text().trim(),
+            coverImg: $('.ims img').attr('src'),
+            chapters: []
+        };
+
+        // Get chapters
+        $('#Daftar_Chapter tr').each((_, el) => {
+            const $row = $(el);
+            const link = $row.find('a').attr('href');
+            const title = $row.find('a span').text().trim();
+            if (link && title) {
+                info.chapters.push({ link, title });
+            }
+        });
+
+        res.json(info);
+
     } catch (error) {
         console.error('Error fetching manga:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-app.get('/api/proxy/chapter/:url(*)', async (req, res) => {
+// Chapter proxy with image extraction
+app.get('/api/proxy/chapter/:slug(*)', async (req, res) => {
     try {
-        const url = req.params.url.startsWith('http') ? 
-            req.params.url : 
-            `https://komiku.id${req.params.url}`;
-        console.log(`Fetching chapter: ${url}`);
-        const html = await makeRequest(url);
-        res.send(html);
+        let slug = req.params.slug;
+        
+        // Clean up URL
+        slug = decodeURIComponent(slug).replace(/^\/+|\/+$/g, '');
+        const url = slug.startsWith('http') ? slug : `https://komiku.id/${slug}`;
+        
+        console.log('Fetching chapter:', url);
+        
+        const { data } = await makeRequest(url);
+        const $ = cheerio.load(data);
+        
+        // Extract images
+        const images = [];
+        $('#Baca_Komik img').each((_, img) => {
+            const src = $(img).attr('src');
+            if (src) {
+                images.push({
+                    src,
+                    alt: $(img).attr('alt') || ''
+                });
+            }
+        });
+
+        // Return JSON response with chapter data
+        res.json({
+            title: $('#Baca_Komik h1').text().trim(),
+            images: images
+        });
+
     } catch (error) {
         console.error('Error fetching chapter:', error);
+        res.status(500).json({ 
+            error: error.message,
+            url: req.params.slug 
+        });
+    }
+});
+
+// List proxy
+app.get('/api/proxy/list', async (req, res) => {
+    try {
+        const url = 'https://komiku.id/daftar-komik/';
+        console.log('Fetching manga list:', url);
+        
+        const { data } = await makeRequest(url);
+        const $ = cheerio.load(data);
+        
+        const mangaList = [];
+        $('.daftar > .bge').each((_, el) => {
+            const $item = $(el);
+            const link = $item.find('a').attr('href');
+            const title = $item.find('h3').text().trim();
+            if (link && title) {
+                mangaList.push({ link, title });
+            }
+        });
+
+        res.json(mangaList);
+
+    } catch (error) {
+        console.error('Error fetching list:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-app.get('/api/proxy/list', async (req, res) => {
+// Image proxy to bypass CORS
+app.get('/api/proxy/image', async (req, res) => {
     try {
-        const url = 'https://komiku.id/genre/fantasy/';
-        console.log(`Fetching manga list: ${url}`);
-        const html = await makeRequest(url);
-        res.send(html);
+        const imageUrl = req.query.url;
+        if (!imageUrl) {
+            return res.status(400).json({ error: 'No image URL provided' });
+        }
+
+        const { data, headers } = await makeRequest(imageUrl);
+        
+        // Forward content-type and other relevant headers
+        res.set('Content-Type', headers['content-type']);
+        res.set('Cache-Control', 'public, max-age=31536000');
+        
+        res.send(data);
+
     } catch (error) {
-        console.error('Error fetching manga list:', error);
+        console.error('Error proxying image:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
 // Start server
-const PORT = process.env.PORT || 80;
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
 });
