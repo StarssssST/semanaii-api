@@ -65,7 +65,7 @@ app.get('/api/proxy/chapter/:url(*)', async (req, res) => {
 
 app.get('/api/proxy/list', async (req, res) => {
     try {
-        const url = 'https://komiku.id/genre/fantasy/';
+        const url = 'https://komiku.id/daftar-komik/';
         console.log(`Fetching manga list: ${url}`);
         const html = await makeRequest(url);
         res.send(html);
