@@ -1,0 +1,22 @@
+{
+  "name": "semanai.web.app",
+  "version": "1.0.0",
+  "main": "server.cjs",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.cjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "express": "^4.21.2",
+    "morgan": "^1.10.0",
+    "node-fetch": "^3.3.2",
+    "ws": "^8.18.0",
+    "https": "^1.0.0"
+  }
+}
+
