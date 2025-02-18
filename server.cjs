@@ -22,6 +22,11 @@ function makeRequest(url, headers = {}) {
                 return resolve(makeRequest(res.headers.location, headers));
             }
 
+            // Handle 404 specially
+            if (res.statusCode === 404) {
+                return reject(new Error('404'));
+            }
+
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
@@ -129,6 +134,17 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
 
     } catch (error) {
         console.error('Error fetching manga:', error);
+        
+        // Handle 404 errors specially
+        if (error.message === '404') {
+            res.status(404).json({
+                error: 'not_found',
+                message: 'Manga not found',
+                slug: req.params.slug
+            });
+            return;
+        }
+
         res.status(500).json({ 
             error: error.message,
             slug: req.params.slug
