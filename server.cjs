@@ -57,6 +57,9 @@ app.use((req, res, next) => {
 // Handle preflight
 app.options('*', (req, res) => res.sendStatus(200));
 
+// Add this before other routes
+app.use(express.static('public'));
+
 // Health check
 app.get('/', (req, res) => {
     res.json({ status: 'ok', message: 'Server is running' });
@@ -224,6 +227,15 @@ app.get('/api/proxy/image', async (req, res) => {
         console.error('Error proxying image:', error);
         res.status(500).json({ error: error.message });
     }
+});
+
+// Add HTML5 history API support
+app.get('*', (req, res) => {
+    // Don't redirect API calls
+    if (req.url.startsWith('/api/')) {
+        return next();
+    }
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Start server
