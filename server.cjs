@@ -187,15 +187,21 @@ app.get('/api/proxy/list', async (req, res) => {
         const $ = cheerio.load(data);
         
         const mangaList = [];
-        $('.daftar > .bge').each((_, el) => {
-            const $item = $(el);
-            const link = $item.find('a').attr('href');
-            const title = $item.find('h3').text().trim();
-            if (link && title) {
-                mangaList.push({ link, title });
+        // Look for manga links within h4 tags
+        $('.daftar h4 a').each((_, el) => {
+            const $link = $(el);
+            const href = $link.attr('href');
+            const title = $link.text().trim();
+            
+            if (href && href.includes('/manga/') && title) {
+                mangaList.push({
+                    url: href,
+                    title: title
+                });
             }
         });
 
+        console.log(`Found ${mangaList.length} manga titles`);
         res.json(mangaList);
 
     } catch (error) {
