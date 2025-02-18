@@ -187,22 +187,51 @@ app.get('/api/proxy/list', async (req, res) => {
         const $ = cheerio.load(data);
         
         const mangaList = [];
-        // Look for manga links within h4 tags
-        $('.daftar h4 a').each((_, el) => {
-            const $link = $(el);
-            const href = $link.attr('href');
-            const title = $link.text().trim();
-            
-            if (href && href.includes('/manga/') && title) {
-                mangaList.push({
-                    url: href,
-                    title: title
-                });
-            }
-        });
 
-        console.log(`Found ${mangaList.length} manga titles`);
-        res.json(mangaList);
+        // Try multiple selectors to find manga links
+        const selectors = [
+            '.daftar h4 a',          // Main manga titles with h4
+            '.daftar .bge a',        // Manga cards
+            '.perapih a[href*="/manga/"]'  // Any link containing /manga/
+        ];
+
+        // Function to clean manga URL
+        const cleanMangaUrl = (url) => {
+            // Ensure URL is absolute
+            if (!url.startsWith('http')) {
+                url = 'https://komiku.id' + (url.startsWith('/') ? '' : '/') + url;
+            }
+            return url;
+        };
+
+        // Try each selector
+        for (const selector of selectors) {
+            $(selector).each((_, el) => {
+                const $link = $(el);
+                const href = $link.attr('href');
+                const title = $link.text().trim();
+                
+                // Only add if it's a manga URL and not already in the list
+                if (href && 
+                    href.includes('/manga/') && 
+                    title && 
+                    !mangaList.some(m => m.url === cleanMangaUrl(href))) {
+                    
+                    mangaList.push({
+                        url: cleanMangaUrl(href),
+                        title: title
+                    });
+                }
+            });
+        }
+
+        // Remove duplicates by URL
+        const uniqueMangaList = Array.from(new Map(
+            mangaList.map(item => [item.url, item])
+        ).values());
+
+        console.log(`Found ${uniqueMangaList.length} manga titles`);
+        res.json(uniqueMangaList);
 
     } catch (error) {
         console.error('Error fetching list:', error);
