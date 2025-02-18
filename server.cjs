@@ -184,97 +184,87 @@ app.get('/api/proxy/list', async (req, res) => {
         console.log('Fetching manga list:', url);
         
         const { data } = await makeRequest(url);
-        console.log('Got response length:', data.length); // Debug log
-        
         const $ = cheerio.load(data);
+        
         const mangaList = [];
 
-        // Debug log the full HTML
-        console.log('HTML sample:', data.substring(0, 500));
-
-        // Find all links in the main content area
-        $('.daftar').find('a').each((_, el) => {
-            const $link = $(el);
-            const href = $link.attr('href');
-            const title = $link.text().trim();
+        // Target the correct list container and manga items
+        $('.ls4w .ls4').each((_, el) => {
+            const $item = $(el);
+            const $link = $item.find('.ls4j h4 a').first();
             
-            // Debug log each found link
-            console.log('Found link:', { href, title });
-
-            if (href && href.includes('/manga/')) {
-                const mangaUrl = href.startsWith('http') ? 
-                    href : 
-                    `https://komiku.id${href.startsWith('/') ? '' : '/'}${href}`;
+            if ($link.length) {
+                const href = $link.attr('href');
+                const title = $link.text().trim();
                 
-                // Only add if not already in list
-                if (!mangaList.some(m => m.url === mangaUrl)) {
-                    mangaList.push({
-                        url: mangaUrl,
-                        title: title
-                    });
-                    console.log('Added manga:', { url: mangaUrl, title }); // Debug log
+                if (href && href.includes('/manga/')) {
+                    const mangaUrl = href.startsWith('http') ? 
+                        href : 
+                        `https://komiku.id${href.startsWith('/') ? '' : '/'}${href}`;
+                    
+                    // Add to list if not duplicate
+                    if (!mangaList.some(m => m.url === mangaUrl)) {
+                        mangaList.push({
+                            url: mangaUrl,
+                            title: title
+                        });
+                        console.log('Added manga:', { url: mangaUrl, title });
+                    }
                 }
             }
         });
 
-        // If main method fails, try alternative selectors
+        // If still no manga found, try backup selectors
         if (mangaList.length === 0) {
-            console.log('Trying alternative selectors...');
-            
-            // Try different container classes
-            const containers = ['.perapih', '.daftar', '#content'];
-            
-            for (const container of containers) {
-                console.log('Trying container:', container);
+            // Try backup method: look for any manga links in the page
+            $('a[href*="/manga/"]').each((_, el) => {
+                const $link = $(el);
+                const href = $link.attr('href');
+                const title = $link.text().trim();
                 
-                $(container).find('a[href*="/manga/"]').each((_, el) => {
-                    const $link = $(el);
-                    const href = $link.attr('href');
-                    const title = $link.text().trim();
+                if (href && title && !title.includes('Chapter')) {
+                    const mangaUrl = href.startsWith('http') ? 
+                        href : 
+                        `https://komiku.id${href.startsWith('/') ? '' : '/'}${href}`;
                     
-                    if (href && title) {
-                        const mangaUrl = href.startsWith('http') ? 
-                            href : 
-                            `https://komiku.id${href.startsWith('/') ? '' : '/'}${href}`;
-                        
-                        if (!mangaList.some(m => m.url === mangaUrl)) {
-                            mangaList.push({
-                                url: mangaUrl,
-                                title: title
-                            });
-                            console.log('Added manga (alternative):', { url: mangaUrl, title });
-                        }
+                    if (!mangaList.some(m => m.url === mangaUrl)) {
+                        mangaList.push({
+                            url: mangaUrl,
+                            title: title
+                        });
+                        console.log('Added manga (backup method):', { url: mangaUrl, title });
                     }
-                });
-                
-                if (mangaList.length > 0) {
-                    console.log('Found manga using container:', container);
-                    break;
                 }
-            }
+            });
         }
 
         console.log(`Found ${mangaList.length} manga titles`);
 
         if (mangaList.length === 0) {
-            // If still no manga found, check if the page is loading correctly
-            const pageTitle = $('title').text();
-            const bodyText = $('body').text().substring(0, 1000);
-            console.error('Page details:', { 
-                title: pageTitle, 
-                bodyPreview: bodyText,
-                hasMainContent: $('.daftar').length > 0
+            // Log page structure for debugging
+            console.error('Page structure:', {
+                hasLs4w: $('.ls4w').length > 0,
+                hasLs4: $('.ls4').length > 0,
+                totalLinks: $('a').length,
+                mangaLinks: $('a[href*="/manga/"]').length,
+                html: $('.ls4w').html()
             });
-            throw new Error('No manga found in the page. The page structure might have changed.');
+            throw new Error('No manga found in the page. Please check the selectors.');
         }
 
         res.json(mangaList);
 
     } catch (error) {
         console.error('Error fetching list:', error);
+        
+        // Send more detailed error response
         res.status(500).json({ 
             error: error.message,
-            details: error.stack
+            details: {
+                stack: error.stack,
+                url: 'https://komiku.id/daftar-komik/',
+                timestamp: new Date().toISOString()
+            }
         });
     }
 });
