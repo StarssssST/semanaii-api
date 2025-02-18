@@ -62,36 +62,7 @@ app.get('/', (req, res) => {
     res.json({ status: 'ok', message: 'Server is running' });
 });
 
-// Add utility function to parse image URLs
-function parseImagePath(url) {
-    try {
-        const originalUrl = new URL(url);
-        const extension = originalUrl.pathname.split('.').pop();
-        return {
-            originalUrl: url,
-            extension: extension || 'jpg'
-        };
-    } catch (error) {
-        console.error('Error parsing image URL:', error);
-        return null;
-    }
-}
-
-// Add image cache to store original URLs
-const imageCache = new Map();
-
-// Add image caching helper functions
-function cacheImage(slug, filename, originalUrl) {
-    const key = `${slug}/${filename}`;
-    imageCache.set(key, originalUrl);
-}
-
-function getCachedImage(slug, filename) {
-    const key = `${slug}/${filename}`;
-    return imageCache.get(key);
-}
-
-// Modify the manga proxy endpoint
+// Manga proxy with proper error handling
 app.get('/api/proxy/manga/:slug', async (req, res) => {
     try {
         const url = `https://komiku.id/manga/${req.params.slug}/`;
@@ -115,15 +86,8 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
             genres.push($(el).text().trim());
         });
 
-        // Modify cover image URL
-        const originalCoverImg = $('.ims img').attr('src');
-        if (originalCoverImg) {
-            const parsedImage = parseImagePath(originalCoverImg);
-            const coverFilename = `cover.${parsedImage?.extension || 'jpg'}`;
-            cacheImage(req.params.slug, coverFilename, originalCoverImg);
-        }
-        const coverImg = originalCoverImg ? 
-            `/api/image/${req.params.slug}/cover.${parseImagePath(originalCoverImg)?.extension || 'jpg'}` : '';
+        // Extract cover image
+        const coverImg = $('.ims img').attr('src');
 
         // Extract chapters
         const chapters = [];
@@ -155,7 +119,6 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
             genres: genres,
             coverImg: coverImg,
             thumbnailImg: coverImg ? `${coverImg}?w=225` : '',
-            originalCoverImg: originalCoverImg, // Store original URL but don't expose it
             chapters: chapters,
             sourceUrl: url,
             slug: req.params.slug
@@ -173,7 +136,7 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
     }
 });
 
-// Modify the chapter proxy endpoint
+// Chapter proxy with image extraction
 app.get('/api/proxy/chapter/:slug(*)', async (req, res) => {
     try {
         let slug = req.params.slug;
@@ -187,25 +150,15 @@ app.get('/api/proxy/chapter/:slug(*)', async (req, res) => {
         const { data } = await makeRequest(url);
         const $ = cheerio.load(data);
         
-        // Extract manga slug from URL
-        const mangaSlug = url.match(/manga\/([^\/]+)/)?.[1] || 'unknown';
-        
-        // Modify image URLs
+        // Extract images
         const images = [];
-        $('#Baca_Komik img').each((index, img) => {
-            const originalSrc = $(img).attr('src');
-            if (originalSrc) {
-                const parsedImage = parseImagePath(originalSrc);
-                if (parsedImage) {
-                    const filename = `page-${index + 1}.${parsedImage.extension}`;
-                    // Cache the original URL
-                    cacheImage(mangaSlug, filename, originalSrc);
-                    
-                    images.push({
-                        src: `/api/image/${mangaSlug}/${filename}`,
-                        alt: $(img).attr('alt') || ''
-                    });
-                }
+        $('#Baca_Komik img').each((_, img) => {
+            const src = $(img).attr('src');
+            if (src) {
+                images.push({
+                    src,
+                    alt: $(img).attr('alt') || ''
+                });
             }
         });
 
@@ -266,56 +219,6 @@ app.get('/api/proxy/image', async (req, res) => {
         res.set('Cache-Control', 'public, max-age=31536000');
         
         res.send(data);
-
-    } catch (error) {
-        console.error('Error proxying image:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Add new image proxy endpoint with pattern matching
-app.get('/api/image/:slug/:filename', async (req, res) => {
-    try {
-        const { slug, filename } = req.params;
-        
-        // Try to get cached original URL
-        let originalUrl = getCachedImage(slug, filename);
-        
-        // If not in cache, try to fetch it
-        if (!originalUrl) {
-            if (filename.startsWith('cover')) {
-                const { data } = await makeRequest(`https://komiku.id/manga/${slug}/`);
-                const $ = cheerio.load(data);
-                originalUrl = $('.ims img').attr('src');
-                if (originalUrl) {
-                    cacheImage(slug, filename, originalUrl);
-                }
-            } else {
-                // For chapter images, we need the original URL
-                originalUrl = req.query.original;
-            }
-        }
-
-        if (!originalUrl) {
-            throw new Error(`Original image URL not found for ${filename}`);
-        }
-
-        // Add proper headers for image proxy
-        const response = await makeRequest(originalUrl, {
-            'Accept': 'image/*',
-            'Referer': 'https://komiku.id/'
-        });
-
-        // Set response headers
-        res.set({
-            'Content-Type': response.headers['content-type'] || 'image/jpeg',
-            'Cache-Control': 'public, max-age=31536000',
-            'Content-Length': response.headers['content-length'],
-            'Access-Control-Allow-Origin': '*'
-        });
-        
-        // Send the image data
-        res.send(response.data);
 
     } catch (error) {
         console.error('Error proxying image:', error);
