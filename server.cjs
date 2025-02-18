@@ -71,28 +71,68 @@ app.get('/api/proxy/manga/:slug', async (req, res) => {
         const { data } = await makeRequest(url);
         const $ = cheerio.load(data);
         
-        // Extract and transform manga data
-        const info = {
-            title: $('.perapih h1').text().trim(),
-            coverImg: $('.ims img').attr('src'),
-            chapters: []
-        };
+        // Extract table info
+        const tableInfo = {};
+        $('.inftable tr').each((_, row) => {
+            const cells = $(row).find('td');
+            const key = $(cells[0]).text().trim();
+            const value = $(cells[1]).text().trim();
+            tableInfo[key] = value;
+        });
 
-        // Get chapters
+        // Extract genre info
+        const genres = [];
+        $('.genre .genre').each((_, el) => {
+            genres.push($(el).text().trim());
+        });
+
+        // Extract cover image
+        const coverImg = $('.ims img').attr('src');
+
+        // Extract chapters
+        const chapters = [];
         $('#Daftar_Chapter tr').each((_, el) => {
             const $row = $(el);
             const link = $row.find('a').attr('href');
             const title = $row.find('a span').text().trim();
+            const date = $row.find('.tanggalseries').text().trim();
+            
             if (link && title) {
-                info.chapters.push({ link, title });
+                chapters.push({ 
+                    link, 
+                    title,
+                    date
+                });
             }
         });
 
-        res.json(info);
+        // Format the response
+        const mangaInfo = {
+            judul: tableInfo['Judul Komik'] || '',
+            judulIndonesia: tableInfo['Judul Indonesia'] || '',
+            jenis: (tableInfo['Jenis Komik'] || '').replace(/[^a-zA-Z]/g, ''),
+            konsepCerita: tableInfo['Konsep Cerita'] || '',
+            pengarang: tableInfo['Pengarang'] || '',
+            status: tableInfo['Status'] || '',
+            umurPembaca: tableInfo['Umur Pembaca'] || '',
+            caraBaca: tableInfo['Cara Baca'] || '',
+            genres: genres,
+            coverImg: coverImg,
+            thumbnailImg: coverImg ? `${coverImg}?w=225` : '',
+            chapters: chapters,
+            sourceUrl: url,
+            slug: req.params.slug
+        };
+
+        // Return the complete manga info
+        res.json(mangaInfo);
 
     } catch (error) {
         console.error('Error fetching manga:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ 
+            error: error.message,
+            slug: req.params.slug
+        });
     }
 });
 
